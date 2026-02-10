@@ -7,13 +7,16 @@ import { videoProcessQueue } from '../queues/index.js';
 videoFetchQueue.process(async (job) => {
   const { channelId, maxResults } = job.data;
   
-  logger.info(`Starting video fetch for channel: ${channelId}`);
+  logger.info(`Starting video fetch for channel: ${channelId} (Job ID: ${job.id})`);
   
   try {
     // Fetch all videos from YouTube
+    logger.info(`Calling fetchAllVideosFromChannel with maxResults: ${maxResults}`);
+    const startTime = Date.now();
     const videos = await fetchAllVideosFromChannel(channelId, maxResults);
+    const duration = Date.now() - startTime;
     
-    logger.info(`Fetched ${videos.length} videos from YouTube`);
+    logger.info(`Fetched ${videos.length} videos from YouTube in ${duration}ms`);
     
     let newCount = 0;
     let existingCount = 0;
