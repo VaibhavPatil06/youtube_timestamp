@@ -45,6 +45,8 @@ const videoSchema = new mongoose.Schema({
     type: Boolean,
     default: false
   },
+  generatedDescription: String,
+  generatedTags: [String],
   
   // Error tracking
   retryCount: {

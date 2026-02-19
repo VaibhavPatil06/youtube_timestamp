@@ -1,44 +1,60 @@
-import { YoutubeTranscript } from 'youtube-transcript';
-import logger from '../utils/logger.js';
-import fs from 'fs/promises';
-import path from 'path';
+import path from "path";
+import fs from "fs/promises";
+import logger from "../utils/logger.js";
+import audioProcessor from "./audioProcessor.js";
+import Video from "../models/Video.js";
 
 export async function getTranscript(videoId) {
+  const filePath = path.resolve(
+    process.cwd(),
+    "data/transcripts",
+    `${videoId}.txt`,
+  );
   try {
-    const lines = await YoutubeTranscript.fetchTranscript(videoId);
-    // lines: [{text, duration, start}]
-    return lines.map((l) => `${formatTime(l.start)} ${l.text}`).join('\n');
+    const content = await fs.readFile(filePath, "utf8");
+    return content;
   } catch (err) {
-    logger.error(`Transcript fetch failed for ${videoId}: ${err.message}`);
+    logger.warn(`Transcript file not found for ${videoId}: ${err.message}`);
     throw err;
   }
 }
 
-export async function fetchAndSaveTranscript(videoId) {
+export async function fetchAndSaveTranscript(videoId, currentDescription = "") {
   try {
-    const transcript = await getTranscript(videoId);
-    
-    // Ensure directory exists
-    const transcriptDir = path.resolve(process.cwd(), 'data/transcripts');
-    await fs.mkdir(transcriptDir, { recursive: true });
-    
-    // Save to file
-    const filePath = path.join(transcriptDir, `${videoId}.txt`);
-    await fs.writeFile(filePath, transcript, 'utf-8');
-    
-    logger.info(`Saved transcript for ${videoId} to ${filePath}`);
-    return transcript;
-  } catch (error) {
-    logger.error(`Failed to fetch and save transcript for ${videoId}:`, error);
-    throw error;
-  }
-}
+    // Delegate to audio processor pipeline which handles download, transcription, generation and DB updates.
+    const result = await audioProcessor.processVideoAudio(
+      videoId,
+      currentDescription,
+    );
+    if (!result || !result.success) {
+      logger.warn(
+        `Audio processing pipeline returned no transcript for ${videoId}`,
+      );
+      return null;
+    }
 
-function formatTime(seconds) {
-  seconds = Math.max(0, Math.floor(seconds));
-  const h = Math.floor(seconds / 3600);
-  const m = Math.floor((seconds % 3600) / 60);
-  const s = seconds % 60;
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`;
-  return `${m}:${String(s).padStart(2, '0')}`;
+    // If pipeline returned transcriptPath, read and return contents
+    if (result.transcriptPath) {
+      try {
+        const content = await fs.readFile(result.transcriptPath, "utf8");
+        return content;
+      } catch (err) {
+        logger.warn(
+          `Failed to read saved transcript for ${videoId}: ${err.message}`,
+        );
+        return null;
+      }
+    }
+
+    return null;
+  } catch (error) {
+    logger.error(
+      `fetchAndSaveTranscript failed for ${videoId}: ${error.message}`,
+    );
+    await Video.findOneAndUpdate(
+      { videoId },
+      { status: "Failed", lastError: error.message },
+    ).catch(() => {});
+    return null;
+  }
 }

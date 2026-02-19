@@ -1,121 +1,132 @@
-import { GoogleGenerativeAI } from '@google/generative-ai';
-import cfg from '../config/index.js';
+import { VertexAI } from '@google-cloud/vertexai';
 import logger from '../utils/logger.js';
+import cfg from '../config/index.js';
+import fs from 'fs/promises';
 
-const genAI = new GoogleGenerativeAI(cfg.geminiApiKey);
+const vertex_ai = new VertexAI({ project: cfg.gcpProject, location: 'us-central1' });
+const modelName = cfg.geminiModel || 'gemini-1.5-flash';
 
-// Generate timestamps from transcript
-export async function generateTimestamps(transcript) {
+const generativeModel = vertex_ai.getGenerativeModel({
+  model: modelName,
+});
+
+/**
+ * Transcribe audio using Gemini 1.5
+ * @param {string} audioPath Path to the mp3 audio file
+ */
+export async function transcribeAudioWithGemini(audioPath) {
   try {
-    const model = genAI.getGenerativeModel({ model: cfg.geminiModel });
-    
-    const prompt = `Analyze this video transcript and generate chapter timestamps with descriptions.
-Return ONLY a JSON array in this exact format:
-[{"timestamp": "0:00", "description": "Introduction"}, {"timestamp": "2:15", "description": "Main topic"}]
+    const audioData = await fs.readFile(audioPath);
+    const base64Audio = audioData.toString('base64');
 
-Transcript:
-${transcript}`;
+    const prompt = `Please provide a full, clean transcript of this audio. 
+    Instructions:
+    - Preserve speaker clarity
+    - Remove filler words (uh, um, like, etc.)
+    - Keep natural sentence structure
+    - Return clean plain text transcript`;
 
-    const result = await model.generateContent(prompt);
-    const response = result.response.text();
-    
-    // Extract JSON from response
-    const jsonMatch = response.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
-      throw new Error('Failed to extract JSON from AI response');
-    }
-    
-    const timestamps = JSON.parse(jsonMatch[0]);
-    logger.info(`Generated ${timestamps.length} timestamps`);
-    
-    return timestamps;
-  } catch (error) {
-    logger.error('Error generating timestamps:', error);
-    throw error;
-  }
-}
-
-// Generate SEO description and tags
-export async function generateSEODescription(transcript, currentDescription = '') {
-  try {
-    const model = genAI.getGenerativeModel({ model: cfg.geminiModel });
-    
-    const prompt = `Create an SEO-optimized YouTube description and hashtags based on this transcript.
-Current description: ${currentDescription}
-
-Return ONLY a JSON object in this exact format:
-{"description": "SEO optimized description here", "tags": ["#tag1", "#tag2", "#tag3"]}
-
-Transcript:
-${transcript.substring(0, 3000)}`;
-
-    const result = await model.generateContent(prompt);
-    const response = result.response.text();
-    
-    // Extract JSON from response
-    const jsonMatch = response.match(/\{[\s\S]*\}/);
-    if (!jsonMatch) {
-      throw new Error('Failed to extract JSON from AI response');
-    }
-    
-    const seoData = JSON.parse(jsonMatch[0]);
-    logger.info('Generated SEO description and tags');
-    
-    return seoData;
-  } catch (error) {
-    logger.error('Error generating SEO description:', error);
-    throw error;
-  }
-}
-
-// Generate subtitle in target language
-export async function generateSubtitle(transcript, languageCode) {
-  try {
-    const model = genAI.getGenerativeModel({ model: cfg.geminiModel });
-    
-    const languageNames = {
-      'en': 'English',
-      'hi': 'Hindi',
-      'es': 'Spanish'
+    const request = {
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { inlineData: { data: base64Audio, mimeType: 'audio/mpeg' } },
+            { text: prompt },
+          ],
+        },
+      ],
     };
-    
-    const targetLanguage = languageNames[languageCode] || languageCode;
-    
-    const prompt = `Translate this transcript to ${targetLanguage} and format as subtitle entries.
-Return ONLY a JSON array in this exact format:
-[{"start": "0:00", "end": "0:05", "text": "Translated text here"}]
 
-Keep the original timestamps. Translate only the text content.
+    const result = await generativeModel.generateContent(request);
+    const response = result.response;
+    const transcript = response.candidates[0].content.parts[0].text;
 
-Transcript:
-${transcript.substring(0, 2000)}`;
-
-    const result = await model.generateContent(prompt);
-    const response = result.response.text();
-    
-    // Extract JSON from response
-    const jsonMatch = response.match(/\[[\s\S]*\]/);
-    if (!jsonMatch) {
-      throw new Error('Failed to extract JSON from AI response');
-    }
-    
-    const subtitles = JSON.parse(jsonMatch[0]);
-    logger.info(`Generated ${languageCode} subtitles with ${subtitles.length} entries`);
-    
-    return subtitles;
+    return transcript;
   } catch (error) {
-    logger.error(`Error generating ${languageCode} subtitle:`, error);
+    logger.error('Error in transcribeAudioWithGemini:', error);
     throw error;
   }
 }
 
-// Legacy function for backward compatibility
-export function buildPrompt(transcript, prevDescription) {
-  return `Create YouTube timestamps and SEO description.\n\nTranscript:\n${transcript}\n\nCurrent Description:\n${prevDescription}`;
+/**
+ * Generate structured timestamps from transcript
+ * @param {string} transcript 
+ */
+export async function generateTimestampsFromTranscript(transcript) {
+  try {
+    const prompt = `Generate structured timestamps for a YouTube video based on this transcript.
+    Requirements:
+    - Minimum 8 chapters
+    - First timestamp must be 0:00
+    - Format: 0:00 - Introduction
+    - Return ONLY a JSON array of objects with "timestamp" and "title" keys.
+    
+    Example:
+    [
+      { "timestamp": "0:00", "title": "Introduction" },
+      { "timestamp": "2:15", "title": "Topic" }
+    ]
+
+    Transcript:
+    ${transcript}`;
+
+    const request = {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    };
+
+    const result = await generativeModel.generateContent(request);
+    const response = result.response;
+    const text = response.candidates[0].content.parts[0].text;
+
+    // Extract JSON
+    const jsonMatch = text.match(/\[[\s\S]*\]/);
+    if (!jsonMatch) throw new Error('Failed to extract JSON from Gemini response');
+    
+    return JSON.parse(jsonMatch[0]);
+  } catch (error) {
+    logger.error('Error in generateTimestampsFromTranscript:', error);
+    throw error;
+  }
 }
 
-export async function generateFromPrompt(prompt) {
-  const model = genAI.getGenerativeModel({ model: cfg.geminiModel });
-  const result = await model.generateContent(prompt);
-  return result.response.text();
+/**
+ * Generate SEO optimized description and hashtags
+ * @param {string} transcript 
+ * @param {string} currentDescription 
+ */
+export async function generateDescriptionFromTranscript(transcript, currentDescription = '') {
+  try {
+    const prompt = `Generate an SEO optimized YouTube description based on this transcript.
+    Requirements:
+    - First 2 lines engaging hook
+    - Bullet highlights
+    - Call to action
+    - 15 relevant hashtags
+    - Return ONLY a JSON object with "description" (string) and "hashtags" (array of strings) keys.
+
+    Transcript:
+    ${transcript.substring(0, 5000)}`; // Basic truncation for safety
+
+    const request = {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+    };
+
+    const result = await generativeModel.generateContent(request);
+    const response = result.response;
+    const text = response.candidates[0].content.parts[0].text;
+
+    // Extract JSON
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+    if (!jsonMatch) throw new Error('Failed to extract JSON from Gemini response');
+
+    return JSON.parse(jsonMatch[0]);
+  } catch (error) {
+    logger.error('Error in generateDescriptionFromTranscript:', error);
+    throw error;
+  }
 }
+
+// Keep legacy exports for transition if needed
+export const generateTimestamps = generateTimestampsFromTranscript;
+export const generateSEODescription = generateDescriptionFromTranscript;

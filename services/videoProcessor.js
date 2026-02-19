@@ -4,7 +4,7 @@ import { fetchAndSaveTranscript } from "./transcriptService.js";
 import {
   generateTimestamps,
   generateSEODescription,
-  generateSubtitle,
+  // generateSubtitle,
 } from "./aiService.js";
 import { createSRTFile } from "./subtitleService.js";
 import logger from "../utils/logger.js";
@@ -20,22 +20,31 @@ export async function processVideo(videoId, title) {
 
     const video = await Video.findOne({ videoId });
 
-    // Step 1: Fetch and save transcript
-    if (!video.transcriptGenerated) {
-      logger.info(`Fetching transcript for ${videoId}`);
-      const transcript = await fetchAndSaveTranscript(videoId);
+    // Step 1: Fetch/Download and save transcript (New Audio Pipeline)
+    let transcript;
+    try {
+      logger.info(`Fetching transcript for ${videoId} via audio download...`);
+      transcript = await fetchAndSaveTranscript(videoId);
 
-      await Video.updateOne({ videoId }, { transcriptGenerated: true });
+      if (!transcript) {
+        throw new Error("Transcript generation failed");
+      }
+    } catch (err) {
+      logger.error(`Pipeline Step 1 (Transcript) failed for ${videoId}:`, err);
+      await Video.updateOne(
+        { videoId },
+        { status: "Failed", lastError: err.message },
+      );
+      return { videoId, status: "failed" }; // Return instead of throwing to continue batch
     }
 
-    // Read transcript for AI processing
-    const transcriptPath = `data/transcripts/${videoId}.txt`;
-    const transcript = await fs.readFile(transcriptPath, "utf-8");
-
     // Step 2: Generate timestamps
-    if (!video.timestampGenerated) {
+    try {
       logger.info(`Generating timestamps for ${videoId}`);
       const timestamps = await generateTimestamps(transcript);
+
+      // Clear old timestamps for this video if any
+      await Timestamp.deleteMany({ videoId });
 
       // Save timestamps to database
       for (const ts of timestamps) {
@@ -43,57 +52,47 @@ export async function processVideo(videoId, title) {
           videoId,
           videoTitle: title,
           timestamp: ts.timestamp,
-          description: ts.description,
+          description: ts.title || ts.description, // Handle both key names
         });
       }
 
       await Video.updateOne({ videoId }, { timestampGenerated: true });
+    } catch (err) {
+      logger.error(`Pipeline Step 2 (Timestamps) failed for ${videoId}:`, err);
+      // We can continue even if timestamps fail, but let's log it
     }
 
     // Step 3: Generate SEO description
-    if (!video.descriptionGenerated) {
+    try {
       logger.info(`Generating SEO description for ${videoId}`);
       const seoData = await generateSEODescription(
         transcript,
         video.description,
       );
 
-      // Store in video document for later upload
       await Video.updateOne(
         { videoId },
         {
           descriptionGenerated: true,
           generatedDescription: seoData.description,
-          generatedTags: seoData.tags,
+          generatedTags: seoData.hashtags || seoData.tags,
         },
       );
+    } catch (err) {
+      logger.error(`Pipeline Step 3 (SEO) failed for ${videoId}:`, err);
     }
 
-    // Step 4: Generate subtitles
-    if (!video.subtitleGenerated) {
-      logger.info(`Generating subtitles for ${videoId}`);
-
-      const languages = ["en", "hi", "es"];
-
-      for (const lang of languages) {
-        const subtitleData = await generateSubtitle(transcript, lang);
-        await createSRTFile(videoId, lang, subtitleData);
-      }
-
-      await Video.updateOne({ videoId }, { subtitleGenerated: true });
-    }
-
-    // Auto-upload after processing
-    logger.info(`Auto-uploading video ${videoId}`);
-    await uploadVideo(videoId, title);
-
+    // Mark as Complete
+    await Video.updateOne(
+      { videoId },
+      { status: "Complete", processedAt: new Date() },
+    );
     logger.info(`Successfully processed video: ${videoId}`);
 
-    return { videoId, status: "processed" };
+    return { videoId, status: "Complete" };
   } catch (error) {
-    logger.error(`Process error for ${videoId}:`, error);
+    logger.error(`Critical process error for ${videoId}:`, error);
 
-    // Update error status
     await Video.updateOne(
       { videoId },
       {
@@ -103,6 +102,6 @@ export async function processVideo(videoId, title) {
       },
     );
 
-    throw error;
+    return { videoId, status: "Failed" };
   }
 }

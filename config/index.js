@@ -11,7 +11,7 @@ const cfg = {
   oauthRedirectUri: process.env.OAUTH_REDIRECT_URI,
   channelId: process.env.CHANNEL_ID,
   geminiApiKey: process.env.GEMINI_API_KEY,
-  geminiModel: process.env.GEMINI_MODEL || 'gemini-1.5-pro',
+  geminiModel: process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite',
   gcpProject: process.env.GCP_PROJECT,
   redisHost: process.env.REDIS_HOST || 'localhost',
   redisPort: process.env.REDIS_PORT || 6379,
