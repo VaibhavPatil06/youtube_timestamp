@@ -9,6 +9,7 @@ const cfg = {
   ytClientId: process.env.YT_CLIENT_ID,
   ytClientSecret: process.env.YT_CLIENT_SECRET,
   oauthRedirectUri: process.env.OAUTH_REDIRECT_URI,
+  reviewsOauthRedirectUri: process.env.REVIEWS_OAUTH_REDIRECT_URI || 'http://localhost:3000/auth/reviews/callback',
   channelId: process.env.CHANNEL_ID,
   geminiApiKey: process.env.GEMINI_API_KEY,
   geminiModel: process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite',
