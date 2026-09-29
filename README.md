@@ -71,9 +71,17 @@ DAILY_QUOTA_LIMIT=9000
 npm start
 ```
 
-### 2. Authenticate with YouTube
+### 2. Authenticate with Google (YouTube + Business Profile)
 
-Visit `http://localhost:3000/auth` in your browser to authorize the application.
+Visit `http://localhost:3000/auth` in your browser. A single consent screen grants both
+`youtube.force-ssl` and `business.manage`, and the resulting refresh token is saved to
+`token.json`. Access tokens are refreshed automatically and re-saved, so you only do this once.
+
+- `GET  /auth/status` shows whether both scopes are granted and the refresh token still works
+- `POST /auth/revoke` revokes access and deletes `token.json`
+
+> The refresh token only stays valid indefinitely if the OAuth consent screen in Google Cloud
+> Console is set to **In production**. In **Testing** mode Google expires it after 7 days.
 
 ### 3. Fetch videos from your channel
 

@@ -1,72 +1,11 @@
 import { google } from "googleapis";
-import cfg from "../config/index.js";
 import fs from "fs/promises";
-import path from "path";
+import { oauth2Client } from "./googleAuth.js";
 import logger from "../utils/logger.js";
 import APIUsage from "../models/APIUsage.js";
 
-const oauth2Client = new google.auth.OAuth2(
-  cfg.ytClientId,
-  cfg.ytClientSecret,
-  cfg.oauthRedirectUri,
-);
-
-export function getAuthUrl() {
-  const scopes = ["https://www.googleapis.com/auth/youtube.force-ssl"];
-  return oauth2Client.generateAuthUrl({
-    access_type: "offline",
-    scope: scopes,
-  });
-}
-
-const TOKENS_PATH = path.resolve(process.cwd(), "token.json");
-
-export async function saveTokens(tokens) {
-  try {
-    await fs.writeFile(TOKENS_PATH, JSON.stringify(tokens, null, 2), "utf8");
-    oauth2Client.setCredentials(tokens);
-    logger.info("Tokens saved and credentials set");
-  } catch (err) {
-    throw new Error("Failed to save tokens: " + err.message);
-  }
-}
-
-export async function loadTokens() {
-  try {
-    const raw = await fs.readFile(TOKENS_PATH, "utf8");
-    const tokens = JSON.parse(raw);
-    oauth2Client.setCredentials(tokens);
-    logger.info("Tokens loaded successfully");
-    console.log(
-      "✅ OAuth tokens loaded. Access token:",
-      tokens.access_token?.substring(0, 20) + "...",
-    );
-    return tokens;
-  } catch (err) {
-    logger.error("Error loading tokens:", err.message);
-    console.log(
-      "❌ No valid tokens found. Please authenticate via /auth endpoint",
-    );
-    return null;
-  }
-}
-
-export async function exchangeCodeAndSave(code) {
-  const { tokens } = await oauth2Client.getToken(code);
-  await saveTokens(tokens);
-  return tokens;
-}
-
-// Auto-load tokens on module initialization
-(async () => {
-  try {
-    await loadTokens();
-  } catch (error) {
-    logger.warn(
-      "Could not auto-load tokens on startup. Please authenticate via /auth endpoint.",
-    );
-  }
-})();
+// Auth is shared with Business Profile — see services/googleAuth.js
+export { getAuthUrl, exchangeCodeAndSave, loadTokens } from "./googleAuth.js";
 
 // Track API usage
 export async function trackAPIUsage(operation, cost, videoId = null) {
@@ -315,3 +254,4 @@ export async function getMyChannels() {
 }
 
 export { oauth2Client };
+
