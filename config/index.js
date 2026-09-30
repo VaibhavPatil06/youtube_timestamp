@@ -8,7 +8,9 @@ const cfg = {
   mongoUri: process.env.MONGODB_URI,
   ytClientId: process.env.YT_CLIENT_ID,
   ytClientSecret: process.env.YT_CLIENT_SECRET,
-  oauthRedirectUri: process.env.OAUTH_REDIRECT_URI,
+  oauthRedirectUri:
+    process.env.OAUTH_REDIRECT_URI ||
+    `http://localhost:${process.env.PORT || 3000}/auth/callback`,
   channelId: process.env.CHANNEL_ID,
   geminiApiKey: process.env.GEMINI_API_KEY,
   geminiModel: process.env.GEMINI_MODEL || 'gemini-2.0-flash-lite',
